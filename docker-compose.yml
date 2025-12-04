@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  cadvisor-snmp:
+    build: .
+    container_name: cadvisor-snmp-bridge
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # URL to your cAdvisor instance
+      - CADVISOR_URL=http://localhost:8080
+      # SNMP read-only community string (change this!)
+      - SNMP_COMMUNITY=public
+    # Alternative: use bridge network if cAdvisor is in same Docker network
+    # networks:
+    #   - monitoring
+    # ports:
+    #   - "161:161/udp"
+    volumes:
+      # Optional: mount custom config
+      - ./snmpd.conf:/etc/snmp/snmpd.conf:ro
+
+# Uncomment if using bridge network mode
+# networks:
+#   monitoring:
+#     external: true
+
