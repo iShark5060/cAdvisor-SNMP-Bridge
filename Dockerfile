@@ -5,8 +5,7 @@ RUN apk add --no-cache \
     net-snmp \
     net-snmp-tools \
     python3 \
-    py3-pip \
-    && pip3 install --no-cache-dir requests
+    py3-requests
 
 # Create directory for scripts and config
 RUN mkdir -p /app
@@ -20,7 +19,8 @@ COPY snmpd.conf.template /app/snmpd.conf.template
 
 # Copy startup script
 COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
+RUN chmod +x /app/start.sh && \
+    sed -i 's/\r$//' /app/start.sh 2>/dev/null || true
 
 # Expose SNMP port
 EXPOSE 161/udp
