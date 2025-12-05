@@ -397,14 +397,30 @@ def main():
         else:
             memory_limit_str = "0B"
 
+        state_status = "running"
         if isinstance(c["state"], str):
-            state_status = c["state"].lower()
+            state_status = c["state"].lower().strip()
             if state_status == "stopped":
                 state_status = "exited"
             elif state_status not in ["running", "exited", "paused", "restarting", "created", "removing", "dead"]:
                 state_status = "running" if state_status in ["up", "active"] else "exited"
-        else:
+        elif isinstance(c["state"], (int, float)):
             state_status = "running" if c["state"] == 1 else "exited"
+
+        if state_status not in ["running", "exited", "paused", "restarting", "created", "removing", "dead"]:
+            state_status = "running"
+
+        uptime_value = c.get("uptime")
+        if uptime_value is not None:
+            uptime_value = int(uptime_value)
+
+        size_rw_value = c.get("size_rw")
+        if size_rw_value is not None:
+            size_rw_value = int(size_rw_value)
+
+        size_root_fs_value = c.get("size_root_fs")
+        if size_root_fs_value is not None:
+            size_root_fs_value = int(size_root_fs_value)
 
         container_data = {
             "container": c["container"],
@@ -417,11 +433,11 @@ def main():
             },
             "state": {
                 "status": state_status,
-                "uptime": c.get("uptime"),
+                "uptime": uptime_value,
             },
             "size": {
-                "size_rw": c.get("size_rw"),
-                "size_root_fs": c.get("size_root_fs"),
+                "size_rw": size_rw_value,
+                "size_root_fs": size_root_fs_value,
             },
         }
 
