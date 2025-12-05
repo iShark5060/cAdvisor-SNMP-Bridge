@@ -92,7 +92,7 @@ LibreNMS will poll every 5 minutes by default. You can force an immediate poll:
 # On LibreNMS server
 cd /opt/librenms
 su librenms
-lnms device:poll -h <device-id> -m applications
+lnms device:poll -m applications <device-id>
 ```
 
 After polling:

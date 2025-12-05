@@ -36,8 +36,21 @@ def calc_cpu_percent(c):
 
     a = stats[-2]
     b = stats[-1]
-    cu_a = a.get("cpu", {}).get("usage", {}).get("total", 0)
-    cu_b = b.get("cpu", {}).get("usage", {}).get("total", 0)
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return 0.0
+    
+    cpu_a = a.get("cpu", {})
+    cpu_b = b.get("cpu", {})
+    if not isinstance(cpu_a, dict) or not isinstance(cpu_b, dict):
+        return 0.0
+    
+    usage_a = cpu_a.get("usage", {})
+    usage_b = cpu_b.get("usage", {})
+    if not isinstance(usage_a, dict) or not isinstance(usage_b, dict):
+        return 0.0
+    
+    cu_a = usage_a.get("total", 0)
+    cu_b = usage_b.get("total", 0)
     ts_a = a.get("timestamp")
     ts_b = b.get("timestamp")
 
@@ -144,9 +157,28 @@ def get_mem(c):
     stats = c.get("stats", [])
     if not stats:
         return 0, 0
-    m = stats[-1].get("memory", {})
-    usage = int(m.get("usage", 0))
-    limit = int(c.get("spec", {}).get("memory", {}).get("limit", 0))
+    latest_stat = stats[-1]
+    if not isinstance(latest_stat, dict):
+        return 0, 0
+    
+    m = latest_stat.get("memory", {})
+    if isinstance(m, dict):
+        usage = int(m.get("usage", 0))
+    elif isinstance(m, (int, float)):
+        usage = int(m)
+    else:
+        usage = 0
+    
+    spec = c.get("spec", {})
+    if isinstance(spec, dict):
+        memory_spec = spec.get("memory", {})
+        if isinstance(memory_spec, dict):
+            limit = int(memory_spec.get("limit", 0))
+        else:
+            limit = 0
+    else:
+        limit = 0
+    
     return usage, limit
 
 def get_name(c_id: str, c: dict) -> str:
@@ -164,12 +196,25 @@ def get_pids(c: dict) -> int:
     stats = c.get("stats", [])
     if not stats:
         return 0
-    pids = stats[-1].get("processes", {}).get("process_count", 0)
-    if pids:
-        return int(pids)
-    cpu = stats[-1].get("cpu", {})
-    if "processes" in cpu:
-        return len(cpu.get("processes", []))
+    latest_stat = stats[-1]
+    if not isinstance(latest_stat, dict):
+        return 0
+    
+    processes = latest_stat.get("processes", {})
+    if isinstance(processes, dict):
+        pids = processes.get("process_count", 0)
+        if pids:
+            return int(pids)
+    elif isinstance(processes, (int, float)):
+        return int(processes)
+    
+    cpu = latest_stat.get("cpu", {})
+    if isinstance(cpu, dict) and "processes" in cpu:
+        cpu_processes = cpu.get("processes", [])
+        if isinstance(cpu_processes, list):
+            return len(cpu_processes)
+        elif isinstance(cpu_processes, (int, float)):
+            return int(cpu_processes)
     return 0
 
 def get_uptime(c: dict) -> int:
@@ -231,32 +276,47 @@ def get_filesystem_sizes(c: dict):
     latest_stat = stats[-1]
 
     filesystem = latest_stat.get("filesystem", [])
-    if filesystem:
+    if filesystem and isinstance(filesystem, list):
         for fs in filesystem:
+            if not isinstance(fs, dict):
+                continue
             device = fs.get("device", "")
             if device == "/" or "root" in device.lower():
-                size_root_fs = fs.get("capacity", {}).get("total", 0)
+                capacity = fs.get("capacity", {})
+                if isinstance(capacity, dict):
+                    size_root_fs = capacity.get("total", 0)
+                elif isinstance(capacity, (int, float)):
+                    size_root_fs = capacity
+                else:
+                    size_root_fs = 0
                 if size_root_fs:
                     return None, int(size_root_fs)
 
     spec = c.get("spec", {})
-
-    filesystem_spec = spec.get("filesystem", {})
-    if filesystem_spec:
-        size_rw = filesystem_spec.get("size_rw") or filesystem_spec.get("sizeRw")
-        size_root_fs = filesystem_spec.get("size_root_fs") or filesystem_spec.get("sizeRootFs")
-        if size_rw or size_root_fs:
-            return int(size_rw) if size_rw else None, int(size_root_fs) if size_root_fs else None
+    if isinstance(spec, dict):
+        filesystem_spec = spec.get("filesystem", {})
+        if isinstance(filesystem_spec, dict):
+            size_rw = filesystem_spec.get("size_rw") or filesystem_spec.get("sizeRw")
+            size_root_fs = filesystem_spec.get("size_root_fs") or filesystem_spec.get("sizeRootFs")
+            if size_rw or size_root_fs:
+                return int(size_rw) if size_rw else None, int(size_root_fs) if size_root_fs else None
 
     for stat in reversed(stats):
+        if not isinstance(stat, dict):
+            continue
         fs_info = stat.get("filesystem", [])
-        if fs_info:
+        if fs_info and isinstance(fs_info, list):
             for fs in fs_info:
+                if not isinstance(fs, dict):
+                    continue
                 usage = fs.get("usage", {})
-                if usage:
+                if isinstance(usage, dict):
                     total = usage.get("total", 0)
                     if total:
                         return None, int(total)
+                elif isinstance(usage, (int, float)):
+                    if usage:
+                        return None, int(usage)
 
     return None, None
 
