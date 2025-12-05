@@ -1,6 +1,0 @@
-*.pyc
-__pycache__/
-.env
-*.log
-config/snmpd.conf
-

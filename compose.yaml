@@ -1,21 +1,20 @@
-version: '3.8'
-
 services:
-  cadvisor-snmp:
-    build: .
-    container_name: cadvisor-snmp-bridge
-    restart: unless-stopped
-    # Bridge networking - use non-privileged port inside container
-    # Host port 161 maps to container port 1161 (non-privileged)
-    ports:
-      - "161:1161/udp"
+  cadvisor:
+    platform: linux/amd64
+    restart: on-failure:3
+    pull_policy: missing
     environment:
-      # URL to your cAdvisor instance
-      # Use host.docker.internal on Mac/Windows, or the host IP
-      - CADVISOR_URL=http://localhost:8080
-      # SNMP read-only community string (change this!)
-      - SNMP_COMMUNITY=public
+      TZ: Europe/Berlin
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    hostname: cadvisor
+    ports:
+      - 30110:8080/tcp
+    privileged: true
+    command:
+      - '-enable_metrics=advtcp,app,cpu,cpuLoad,cpu_topology,cpuset,disk,diskIO,hugetlb,memory,memory_numa,network,oom_event,percpu,perf_event,process,resctrl,sched,tcp,udp'
     volumes:
-      # Mount config directory - config file will be generated here
-      # You can also place a custom snmpd.conf file in ./config/ to override
-      - ./config:/app/config:rw
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro

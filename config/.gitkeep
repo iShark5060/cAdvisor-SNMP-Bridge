@@ -1,4 +1,0 @@
-# This directory is mounted into the container
-# The snmpd.conf file will be generated here automatically
-# You can also place a custom snmpd.conf file here to override the generated one
-

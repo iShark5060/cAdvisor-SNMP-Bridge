@@ -1,174 +1,139 @@
-# cAdvisor-SNMP Bridge
+# cAdvisor SNMP Bridge for LibreNMS
 
-A Docker container that bridges [cAdvisor](https://github.com/google/cadvisor) metrics to SNMP, enabling monitoring via LibreNMS or any SNMP-compatible monitoring system.
-
-## Overview
-
-This container runs `snmpd` with a custom Python script that:
-- Fetches container statistics from cAdvisor API
-- Exposes them via SNMP using the `pass_persist` mechanism
-- Provides container metrics including CPU usage, memory usage, and container state
+Bridge cAdvisor container metrics to LibreNMS via SNMP using `snmpd extend`. This allows LibreNMS to monitor Docker containers running on TrueNAS (or any Linux system) using the built-in Docker application.
 
 ## Features
 
-- **Lightweight**: Based on Alpine Linux
-- **Dynamic**: Automatically discovers containers from cAdvisor
-- **SNMP-Compatible**: Works with LibreNMS, Zabbix, Nagios, and other SNMP tools
-- **Configurable**: Uses environment variables for easy configuration
+- ✅ Exposes Docker container metrics via SNMP
+- ✅ Compatible with LibreNMS Docker application
+- ✅ Provides CPU, Memory, Process count, Uptime, and Filesystem metrics
+- ✅ Automatic container state detection
+- ✅ Works with cAdvisor running in Docker or directly on host
 
-## OID Structure
+## Prerequisites
 
-The custom OID tree is: `.1.3.6.1.4.1.424242.2.1` (private enterprise OID)
+- TrueNAS (or any Linux system with `snmpd` and Python3)
+- cAdvisor running and accessible (via Docker or host)
+- LibreNMS server with SNMP access to TrueNAS
+- Python 3 with `requests` module
 
-Each container is assigned a stable index, and the following metrics are available:
+## Installation on TrueNAS
 
-- `.{idx}.1` - Container name (string)
-- `.{idx}.2` - Container state (integer: 1=running, 2=stopped)
-- `.{idx}.3` - CPU usage in hundredths of percent (integer)
-- `.{idx}.4` - Memory usage in bytes (counter64)
-- `.{idx}.5` - Memory limit in bytes (counter64)
-- `.{idx}.6` - Restart count (counter32)
+### Step 1: Install cAdvisor (if not already running)
 
-## Quick Start
+It's easiest to use the TrueNAS Apps interface to deploy cAdvisor.
+Adjust the exposed port as needed. I used `30110` in my setup.
 
-### Using Docker Compose (Recommended)
+**Note:** cAdvisor should be accessible at `http://127.0.0.1:30110` (or your configured port).
 
-1. Edit `docker-compose.yml` and set:
-   - `CADVISOR_URL`: URL to your cAdvisor instance
-   - `SNMP_COMMUNITY`: SNMP read-only community string
+### Step 2: Copy Scripts to TrueNAS
 
-2. Build and run:
-   ```bash
-   docker-compose up -d
-   ```
+copy the script to some directory that the root user can read.
+I've added a new Dataset in my "Container" Pool:
 
-### Using Docker Directly
+```
+root@Mitsuko[/mnt/Container/cAdvisor-SNMP]# ls -al
+total 26
+drwxr-xr-x  2 root Debian-snmp     4 Dec  5 12:17 .
+drwxr-xr-x 15 root root           16 Dec  4 17:47 ..
+-rw-r--r--  1 root Debian-snmp 12588 Dec  5 12:17 cadvisor-extend.py
+-rw-r--r--  1 root Debian-snmp 12858 Dec  5 11:43 cadvisor.py
+root@Mitsuko[/mnt/Container/cAdvisor-SNMP]#
+```
 
-1. Build the image:
-   ```bash
-   docker build -t cadvisor-snmp .
-   ```
+honestly not sure if the files need to be read by the Docker-snmp user, since the snmpd is run as root, but meh .. better to be safe.
 
-2. Run the container:
-   ```bash
-   docker run -d \
-     --name cadvisor-snmp-bridge \
-     --network host \
-     -e CADVISOR_URL=http://localhost:8080 \
-     -e SNMP_COMMUNITY=public \
-     cadvisor-snmp
-   ```
+### Step 3: Configure snmpd
+
+Edit `/etc/snmp/snmpd.conf` via the GUI (System -> Services -> SNMP -> Edit) and add the following line to the Auxiliary Parameters section:
+
+```conf
+extend docker /usr/bin/python3 /mnt/Container/cAdvisor-SNMP/cadvisor-extend.py --url http://127.0.0.1:30110
+```
+
+**Important:** Replace `http://127.0.0.1:30110` with your actual cAdvisor URL if different. And also use the correct mount path for your setup.
+
+### Step 4: Restart snmpd
+
+automatically done if you press "save" in the GUI, otherwise you can manually restart it.
+
+```bash
+systemctl restart snmpd
+```
+
+## Verification
+
+### Test Script Directly
+
+```bash
+# Test the script
+/usr/bin/python3 /mnt/Container/cAdvisor-SNMP/cadvisor-extend.py --url http://127.0.0.1:30110 | python3 -m json.tool
+```
+
+You should see JSON output with container metrics.
+
+### Test via SNMP
+
+```bash
+# From TrueNAS or LibreNMS server
+snmpwalk -v2c -c <your-community> <truenas-ip> NET-SNMP-EXTEND-MIB::nsExtendOutput1Table | grep docker
+```
+
+You should see JSON output with container data.
+
+## LibreNMS Integration
+
+- Add your TrueNAS Server as a new device, if not present already
+- Edit the device and enable "Docker" Application
+
+LibreNMS will poll every 5 minutes by default. You can force an immediate poll:
+
+```bash
+# On LibreNMS server
+cd /opt/librenms
+su librenms
+lnms device:poll -h <device-id> -m applications
+```
+
+After polling:
+- Go to **Devices** → Your TrueNAS Device → **Applications** → **Docker**
+- You should see:
+  - Container list
+  - CPU usage graphs
+  - Memory usage graphs
+  - Container states
+  - Uptime information
 
 ## Configuration
 
 ### Environment Variables
 
-- **CADVISOR_URL** (required): URL to your cAdvisor instance
-  - Example: `http://cadvisor:8080` (if in same Docker network)
-  - Example: `http://localhost:8080` (if using host network)
-  - Example: `https://mitsuko.darkavian.com:30110` (external URL)
-
-- **SNMP_COMMUNITY** (optional, default: `public`): SNMP read-only community string
-  - **Important**: Change this from the default for security!
-
-### Network Modes
-
-#### Host Network Mode (Default)
-The container uses `network_mode: host` to bind directly to port 161 on the host. This is the simplest setup and works well when cAdvisor is also accessible on the host.
-
-#### Bridge Network Mode
-If cAdvisor is running in a Docker network, you can:
-
-1. Comment out `network_mode: host` in `docker-compose.yml`
-2. Uncomment the `networks` and `ports` sections
-3. Ensure both containers are on the same network
-
-Example:
-```yaml
-networks:
-  - monitoring
-ports:
-  - "161:161/udp"
-```
-
-## Testing
-
-### Test SNMP Query
+You can set `CADVISOR_URL` environment variable instead of using `--url`:
 
 ```bash
-# From the host or another machine with SNMP tools installed
-snmpwalk -v 2c -c public localhost .1.3.6.1.4.1.424242.2.1
-
-# Query a specific container's CPU usage
-snmpget -v 2c -c public localhost .1.3.6.1.4.1.424242.2.1.{idx}.3
+# In snmpd.conf, you can use:
+extend docker env CADVISOR_URL=http://127.0.0.1:30110 /usr/bin/python3 /mnt/Container/cAdvisor-SNMP/cadvisor-extend.py
 ```
 
-### Test cAdvisor Connection
+## Metrics Provided
 
-```bash
-# Enter the container
-docker exec -it cadvisor-snmp-bridge sh
+The script provides the following metrics to LibreNMS:
 
-# Test the Python script manually
-python3 /app/cadvisor.py --url http://your-cadvisor-url:8080
-```
+| Metric | Description | Unit |
+|--------|-------------|------|
+| `cpu` | CPU usage percentage | % |
+| `pids` | Process count | count |
+| `memory.perc` | Memory usage percentage | % |
+| `memory.used` | Memory used | bytes (formatted) |
+| `memory.limit` | Memory limit | bytes (formatted) |
+| `state.status` | Container state | running/exited/paused/etc |
+| `state.uptime` | Container uptime | seconds |
+| `size.size_rw` | Read-write layer size | bytes |
+| `size.size_root_fs` | Root filesystem size | bytes |
 
-## Adding to LibreNMS
+## Acknowledgments
 
-1. In LibreNMS, go to **Devices** → **Add Device**
-2. Enter the hostname or IP address of the machine running this container
-3. Set the SNMP version (2c recommended) and community string
-4. LibreNMS should automatically discover the device
-
-To add custom graphs:
-1. Create a custom graph template in LibreNMS
-2. Use the OID base `.1.3.6.1.4.1.424242.2.1`
-3. Reference the specific metrics by index
-
-## Troubleshooting
-
-### Container won't start
-- Check logs: `docker logs cadvisor-snmp-bridge`
-- Verify `CADVISOR_URL` is correct and accessible from the container
-- Ensure port 161/udp is not already in use (check with `netstat -ulnp | grep 161`)
-
-### SNMP queries return no data
-- Verify the SNMP community string matches your configuration
-- Check if the container can reach cAdvisor: `docker exec cadvisor-snmp-bridge wget -O- $CADVISOR_URL/api/v1.3/docker`
-- Review snmpd logs in the container: `docker exec cadvisor-snmp-bridge cat /var/log/snmpd.log` (if logging is enabled)
-
-### No containers showing up
-- Verify cAdvisor is exposing the `/api/v1.3/docker` endpoint
-- Check that cAdvisor is actually monitoring containers (visit cAdvisor web UI)
-- The script requires at least 2 stat samples to calculate CPU usage
-
-## Development
-
-### Running Locally
-
-```bash
-# Install dependencies
-pip3 install requests
-
-# Test the script
-./cadvisor.py --url http://localhost:8080
-```
-
-### Script Improvements Made
-
-- Fixed CPU calculation to properly normalize by CPU cores
-- Added proper GET request handling (not just walks)
-- Improved timestamp parsing for better compatibility
-- Added environment variable support for cAdvisor URL
-- Better error handling and edge cases
-
-## Security Notes
-
-- **Change the default SNMP community string!** The default is `public` which is insecure
-- Consider using SNMPv3 with authentication if exposing over the network
-- The container runs as root to bind to port 161; consider using capabilities if you want to run as non-root
-
-## License
-
-This project is provided as-is for bridging cAdvisor metrics to SNMP.
+- [cAdvisor](https://github.com/google/cadvisor) - Container resource usage monitoring
+- [LibreNMS](https://www.librenms.org/) - Network monitoring system
+- [Net-SNMP](https://net-snmp.sourceforge.io/) - SNMP implementation
 
