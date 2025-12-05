@@ -131,6 +131,19 @@ The script provides the following metrics to LibreNMS:
 | `size.size_rw` | Read-write layer size | bytes |
 | `size.size_root_fs` | Root filesystem size | bytes |
 
+## The "other" script
+
+The `cadvisor.py` script was a test using pass_persist instead of extend. Works fine, but I found implementing it into LibreNMS with the Docker application easier.
+However, since the Docker Application is deprecated, maybe it becomes relevant some time in the future.
+
+to use this one, simply add the following line to the `snmpd.conf`:
+
+```
+pass_persist .1.3.6.1.4.1.424242.2.1 /usr/bin/python3 /mnt/Container/cAdvisor-SNMP/cadvisor.py --url http://127.0.0.1:30110
+```
+
+adjust path and ip/port as needed, obviously.
+
 ## Acknowledgments
 
 - [cAdvisor](https://github.com/google/cadvisor) - Container resource usage monitoring
