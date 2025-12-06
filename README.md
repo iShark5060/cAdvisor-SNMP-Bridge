@@ -104,6 +104,29 @@ After polling:
   - Container states
   - Uptime information
 
+### Step 5: Configure Alarms
+
+And this is where we come to a limitation of the Docker App implementation in LibreNMS.
+I haven't found a way yet to tell WHICH container is not running, only that SOME container is not running.
+
+- Edit Device
+- Alert Rules
+- Create new Alert Rule
+- Name the Alert something like "Docker Container Down"
+- then place some dummy rule like "device.device_id" "not equal" "0"
+- under advanced, activate Override SQL and paste the following:
+
+```
+SELECT * FROM devices, applications, application_metrics 
+WHERE (devices.device_id = ? 
+  AND devices.device_id = applications.device_id 
+  AND applications.app_id = application_metrics.app_id) 
+  AND (application_metrics.metric = "total_exited" 
+    OR application_metrics.metric = "total_dead" 
+    OR application_metrics.metric = "total_paused") 
+  AND application_metrics.value > 0
+```
+
 ## Configuration
 
 ### Environment Variables
