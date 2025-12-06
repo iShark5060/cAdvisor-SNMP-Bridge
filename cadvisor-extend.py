@@ -75,7 +75,7 @@ def calc_cpu_percent(c):
             continue
         cu_total = usage.get("total", 0)
         ts = stat.get("timestamp")
-        if not cu_total or not ts:
+        if cu_total is None or not ts:
             continue
 
         ts_parsed = parse_timestamp(ts)
@@ -90,15 +90,39 @@ def calc_cpu_percent(c):
     if len(valid_points) < 2:
         return 0.0
 
-    point_a = valid_points[-1]
-    point_b = valid_points[0]
+    best_window = None
+    best_dt = 0
 
-    dt = max(0.001, point_b['timestamp'] - point_a['timestamp'])
+    for i in range(len(valid_points)):
+        for j in range(i + 1, len(valid_points)):
+            point_a = valid_points[j]
+            point_b = valid_points[i]
+            dt = point_b['timestamp'] - point_a['timestamp']
 
-    delta_ns = max(0, point_b['cpu_total_ns'] - point_a['cpu_total_ns'])
+            if dt >= 1.0:
+                if dt > best_dt:
+                    best_dt = dt
+                    best_window = (point_a, point_b)
+            elif best_window is None and dt >= 0.1:
+                if dt > best_dt:
+                    best_dt = dt
+                    best_window = (point_a, point_b)
 
+    if best_window:
+        point_a, point_b = best_window
+        dt = best_dt
+    else:
+        point_a = valid_points[-1]
+        point_b = valid_points[0]
+        dt = max(0.1, point_b['timestamp'] - point_a['timestamp'])
+
+    delta_ns = point_b['cpu_total_ns'] - point_a['cpu_total_ns']
+
+    if delta_ns < 0 and abs(delta_ns) > point_a['cpu_total_ns'] * 0.5:
+        return 0.0
+    
+    delta_ns = max(0, delta_ns)
     cpu_seconds = delta_ns / 1e9
-
     cpu_rate = cpu_seconds / dt
 
     cpu_limit = c.get("spec", {}).get("cpu", {}).get("limit", 0)
@@ -166,7 +190,7 @@ def get_mem(c):
     latest_stat = stats[-1]
     if not isinstance(latest_stat, dict):
         return 0, 0
-    
+
     m = latest_stat.get("memory", {})
     if isinstance(m, dict):
         usage = int(m.get("usage", 0))
@@ -184,7 +208,7 @@ def get_mem(c):
             limit = 0
     else:
         limit = 0
-    
+
     return usage, limit
 
 def get_name(c_id: str, c: dict) -> str:
