@@ -25,36 +25,15 @@ def fetch_containers(cadvisor_url: str, timeout: float = 2.0):
     return r.json()
 
 def calc_cpu_percent(c):
-    """Calculate CPU usage percentage.
+    """Calculate CPU usage percentage from cumulative counter.
 
-    Requires at least 2 stats points to calculate delta.
-    If only 1 stat point available, returns 0.0.
+    cAdvisor reports CPU usage as a cumulative counter (like Prometheus).
+    We calculate the rate of change over a time window to get CPU percentage.
+
+    Uses the last 2-5 stats points (if available) to calculate a more stable rate.
     """
     stats = c.get("stats", [])
     if len(stats) < 2:
-        return 0.0
-
-    a = stats[-2]
-    b = stats[-1]
-    if not isinstance(a, dict) or not isinstance(b, dict):
-        return 0.0
-    
-    cpu_a = a.get("cpu", {})
-    cpu_b = b.get("cpu", {})
-    if not isinstance(cpu_a, dict) or not isinstance(cpu_b, dict):
-        return 0.0
-    
-    usage_a = cpu_a.get("usage", {})
-    usage_b = cpu_b.get("usage", {})
-    if not isinstance(usage_a, dict) or not isinstance(usage_b, dict):
-        return 0.0
-    
-    cu_a = usage_a.get("total", 0)
-    cu_b = usage_b.get("total", 0)
-    ts_a = a.get("timestamp")
-    ts_b = b.get("timestamp")
-
-    if not cu_a or not cu_b:
         return 0.0
 
     def parse_timestamp(ts):
@@ -84,17 +63,43 @@ def calc_cpu_percent(c):
             except Exception:
                 return None
 
-    try:
-        ta = parse_timestamp(ts_a)
-        tb = parse_timestamp(ts_b)
-        if ta is None or tb is None:
-            return 0.0
-    except Exception:
+    valid_points = []
+    for stat in reversed(stats[-5:]):
+        if not isinstance(stat, dict):
+            continue
+        cpu = stat.get("cpu", {})
+        if not isinstance(cpu, dict):
+            continue
+        usage = cpu.get("usage", {})
+        if not isinstance(usage, dict):
+            continue
+        cu_total = usage.get("total", 0)
+        ts = stat.get("timestamp")
+        if not cu_total or not ts:
+            continue
+
+        ts_parsed = parse_timestamp(ts)
+        if ts_parsed is None:
+            continue
+
+        valid_points.append({
+            'timestamp': ts_parsed,
+            'cpu_total_ns': cu_total
+        })
+
+    if len(valid_points) < 2:
         return 0.0
 
-    dt = max(0.001, tb - ta)
-    delta_ns = max(0, cu_b - cu_a)
+    point_a = valid_points[-1]
+    point_b = valid_points[0]
+
+    dt = max(0.001, point_b['timestamp'] - point_a['timestamp'])
+
+    delta_ns = max(0, point_b['cpu_total_ns'] - point_a['cpu_total_ns'])
+
     cpu_seconds = delta_ns / 1e9
+
+    cpu_rate = cpu_seconds / dt
 
     cpu_limit = c.get("spec", {}).get("cpu", {}).get("limit", 0)
     cpu_count = c.get("spec", {}).get("cpu", {}).get("count", 1)
@@ -108,7 +113,8 @@ def calc_cpu_percent(c):
 
     if cpus <= 0:
         cpus = 1
-    pct = min(100.0, (cpu_seconds / dt) * 100.0 / cpus)
+
+    pct = min(100.0, cpu_rate * 100.0 / cpus)
     return round(pct, 2)
 
 def get_state(c):
@@ -199,7 +205,7 @@ def get_pids(c: dict) -> int:
     latest_stat = stats[-1]
     if not isinstance(latest_stat, dict):
         return 0
-    
+
     processes = latest_stat.get("processes", {})
     if isinstance(processes, dict):
         pids = processes.get("process_count", 0)
@@ -207,7 +213,7 @@ def get_pids(c: dict) -> int:
             return int(pids)
     elif isinstance(processes, (int, float)):
         return int(processes)
-    
+
     cpu = latest_stat.get("cpu", {})
     if isinstance(cpu, dict) and "processes" in cpu:
         cpu_processes = cpu.get("processes", [])
@@ -263,7 +269,7 @@ def get_uptime(c: dict) -> int:
 
 def get_filesystem_sizes(c: dict):
     """Get filesystem size metrics: size_rw and size_root_fs.
-    
+
     Returns tuple (size_rw, size_root_fs) in bytes, or (None, None) if not available.
     These metrics come from Docker filesystem stats:
     - size_rw: Size of the read-write layer (container's writable layer)
@@ -322,7 +328,7 @@ def get_filesystem_sizes(c: dict):
 
 def format_memory_string(bytes_value: int) -> str:
     """Format memory bytes as a string that Number::toBytes() can parse.
-    
+
     Formats as: "100MB", "100MiB", "1.5GB", etc.
     LibreNMS Number::toBytes() can parse formats like:
     - "100MB" or "100 MB"
