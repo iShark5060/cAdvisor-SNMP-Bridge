@@ -1,34 +1,38 @@
 # cAdvisor SNMP Bridge for LibreNMS
 
-Bridge cAdvisor container metrics to LibreNMS via SNMP using `snmpd extend`. This allows LibreNMS to monitor Docker containers running on TrueNAS (or any Linux system) using the built-in Docker application.
+Bridge cAdvisor container metrics to LibreNMS via SNMP using `snmpd extend`. This allows LibreNMS to monitor Docker containers running on TrueNAS (or technically any Linux system) using the built-in Docker application.
 
 ## Features
 
-- ✅ Exposes Docker container metrics via SNMP
-- ✅ Compatible with LibreNMS Docker application
-- ✅ Provides CPU, Memory, Process count, Uptime, and Filesystem metrics
-- ✅ Automatic container state detection
-- ✅ Works with cAdvisor running in Docker or directly on host
+- Exposes Docker container metrics via SNMP
+- Compatible with LibreNMS Docker application
+- Provides CPU, Memory, Process count, Uptime, and Filesystem metrics
+- Automatic container state detection
+- Works with cAdvisor running in Docker or directly on host
 
 ## Prerequisites
 
 - TrueNAS (or any Linux system with `snmpd` and Python3)
-- cAdvisor running and accessible (via Docker or host)
-- LibreNMS server with SNMP access to TrueNAS
-- Python 3 with `requests` module
+- Python3 with `requests` module
+- cAdvisor running (via Docker or host) and accessible to the snmpd user
+- LibreNMS server with SNMP access to TrueNAS (or other Linux system)
 
 ## Installation on TrueNAS
 
 ### Step 1: Install cAdvisor (if not already running)
 
-It's easiest to use the TrueNAS Apps interface to deploy cAdvisor.
+As the time of writing cAdvisor is not available via the TrueNAS App Catalog.
+Use the `compose.yaml` in this repo for a simple cAdvisor container that you can use to install a custom app.
+You could also use the GUI and fill in the information, but I find it easier to use the yaml importer. Additionally there is currently a Bug in TrueNAS (will probably be fixed with 25.10.1) that doesn't let you mound certain folders with the GUI.
+
 Adjust the exposed port as needed. I used `30110` in my setup.
 
 **Note:** cAdvisor should be accessible at `http://127.0.0.1:30110` (or your configured port).
+Test if the service is running and if all your containers show up as expected.
 
 ### Step 2: Copy Scripts to TrueNAS
 
-copy the script to some directory that the root user can read.
+Copy the script to some directory that the root user can read.
 I've added a new Dataset in my "Container" Pool:
 
 ```
@@ -71,6 +75,30 @@ systemctl restart snmpd
 ```
 
 You should see JSON output with container metrics.
+Example output:
+
+```
+[...]
+    {
+        "container": "jellyfin",
+        "cpu": 0.05,
+        "pids": 1,
+        "memory": {
+            "perc": 0.0,
+            "used": "521.17MiB",
+            "limit": "0B"
+        },
+        "state": {
+            "status": "running",
+            "uptime": 64466
+        },
+        "size": {
+            "size_rw": null,
+            "size_root_fs": 365568
+        }
+    },
+[...]
+```
 
 ### Test via SNMP
 
@@ -172,4 +200,3 @@ adjust path and ip/port as needed, obviously.
 - [cAdvisor](https://github.com/google/cadvisor) - Container resource usage monitoring
 - [LibreNMS](https://www.librenms.org/) - Network monitoring system
 - [Net-SNMP](https://net-snmp.sourceforge.io/) - SNMP implementation
-
