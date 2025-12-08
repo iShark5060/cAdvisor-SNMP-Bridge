@@ -148,12 +148,13 @@ I haven't found a way yet to tell WHICH container is not running, only that SOME
 SELECT * FROM devices, applications, application_metrics 
 WHERE (devices.device_id = ? 
   AND devices.device_id = applications.device_id 
-  AND applications.app_id = application_metrics.app_id) 
-  AND (application_metrics.metric = "total_exited" 
-    OR application_metrics.metric = "total_dead" 
-    OR application_metrics.metric = "total_paused") 
-  AND application_metrics.value > 0
+  AND applications.app_id = application_metrics.app_id
+  AND applications.app_type = 'docker') 
+  AND application_metrics.metric = 'total_running'
+  AND application_metrics.value_prev IS NOT NULL
+  AND application_metrics.value < application_metrics.value_prev
 ```
+if you have a container that runs and then exits, this will misfire. Keep that in mind.
 
 ## Configuration
 
