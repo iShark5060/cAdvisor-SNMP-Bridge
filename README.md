@@ -1,6 +1,13 @@
 # cAdvisor SNMP Bridge for LibreNMS
 
-Bridge cAdvisor container metrics to LibreNMS via SNMP using `snmpd extend`. This allows LibreNMS to monitor Docker containers running on TrueNAS (or technically any Linux system) using the built-in Docker application.
+All I wanted to do was monitor my Docker Containers running on TrueNAS via LibreNMS after switching to it from Uptime-Kuma (which has monitoring of the `/var/run/docker.sock` implemented directly).
+After searching for a while I found that there isn't any direct way to accomplish this. There is a [Nagios Plugin](https://github.com/timdaman/check_docker), and the [LibreNMS Docker Agent](https://github.com/librenms/librenms-agent/blob/master/snmp/docker-stats.py). The first one isn't directly compatible and the second one needs to run on the docker host itself (since it uses CLI commands), so nothing that would help me with my TrueNAS Docker implementation. Luckily there is [cAdvisor](https://github.com/google/cadvisor) which exposes almost all metrics via HTTP API.
+
+I had to just bridge the two together, and since LibreNMS already had a Docker App integration (for their own Agent), this was just a "match x to y" type of scenario.
+Luckily for me TrueNAS SNMP implementation supports additional configuration parameters, so that I could just hook onto it via `snmpd extend`.
+
+After a bit of trial and error to get the expected data types and formatting right, This python script will now bridge cAdvisor container metrics to LibreNMS via SNMP using `snmpd extend`.
+This allows LibreNMS to monitor Docker containers running on TrueNAS (or technically any Linux system, but the native agent would be better for this) using the built-in Docker application.
 
 ## Features
 
@@ -8,14 +15,14 @@ Bridge cAdvisor container metrics to LibreNMS via SNMP using `snmpd extend`. Thi
 - Compatible with LibreNMS Docker application
 - Provides CPU, Memory, Process count, Uptime, and Filesystem metrics
 - Automatic container state detection
-- Works with cAdvisor running in Docker or directly on host
+- Works with cAdvisor running in Docker or directly on host (if you can run stuff on host, just use a LibreNMS agent)
 
 ## Prerequisites
 
 - TrueNAS (or any Linux system with `snmpd` and Python3)
 - Python3 with `requests` module
-- cAdvisor running (via Docker or host) and accessible to the snmpd user
-- LibreNMS server with SNMP access to TrueNAS (or other Linux system)
+- cAdvisor running and accessible to the snmpd user
+- LibreNMS server with SNMP access to TrueNAS
 
 ## Installation on TrueNAS
 
@@ -24,6 +31,30 @@ Bridge cAdvisor container metrics to LibreNMS via SNMP using `snmpd extend`. Thi
 As the time of writing cAdvisor is not available via the TrueNAS App Catalog.
 Use the `compose.yaml` in this repo for a simple cAdvisor container that you can use to install a custom app.
 You could also use the GUI and fill in the information, but I find it easier to use the yaml importer. Additionally there is currently a Bug in TrueNAS (will probably be fixed with 25.10.1) that doesn't let you mound certain folders with the GUI.
+
+```
+services:
+  cadvisor:
+    platform: linux/amd64
+    restart: on-failure:3
+    pull_policy: missing
+    environment:
+      TZ: Europe/Berlin
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    hostname: cadvisor
+    ports:
+      - 30110:8080/tcp
+    privileged: true
+    command:
+      - '-enable_metrics=advtcp,app,cpu,cpuLoad,cpu_topology,cpuset,disk,diskIO,hugetlb,memory,memory_numa,network,oom_event,percpu,perf_event,process,resctrl,sched,tcp,udp'
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+```
+
 
 Adjust the exposed port as needed. I used `30110` in my setup.
 
