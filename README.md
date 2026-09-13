@@ -1,13 +1,8 @@
 # cAdvisor SNMP Bridge for LibreNMS
 
-All I wanted to do was monitor my Docker Containers running on TrueNAS via LibreNMS after switching to it from Uptime-Kuma (which has monitoring of the `/var/run/docker.sock` implemented directly).
-After searching for a while I found that there isn't any direct way to accomplish this. There is a [Nagios Plugin](https://github.com/timdaman/check_docker), and the [LibreNMS Docker Agent](https://github.com/librenms/librenms-agent/blob/master/snmp/docker-stats.py). The first one isn't directly compatible and the second one needs to run on the docker host itself (since it uses CLI commands), so nothing that would help me with my TrueNAS Docker implementation. Luckily there is [cAdvisor](https://github.com/google/cadvisor) which exposes almost all metrics via HTTP API.
+All I wanted was to watch Docker containers on TrueNAS from LibreNMS after leaving Uptime Kuma. There is no clean path for that. The [Nagios plugin](https://github.com/timdaman/check_docker) is not LibreNMS, and the [LibreNMS Docker Agent](https://github.com/librenms/librenms-agent/blob/master/snmp/docker-stats.py) wants to run on the host with CLI access.
 
-I had to just bridge the two together, and since LibreNMS already had a Docker App integration (for their own Agent), this was just a "match x to y" type of scenario.
-Luckily for me TrueNAS SNMP implementation supports additional configuration parameters, so that I could just hook onto it via `snmpd extend`.
-
-After a bit of trial and error to get the expected data types and formatting right, This python script will now bridge cAdvisor container metrics to LibreNMS via SNMP using `snmpd extend`.
-This allows LibreNMS to monitor Docker containers running on TrueNAS (or technically any Linux system, but the native agent would be better for this) using the built-in Docker application.
+[cAdvisor](https://github.com/google/cadvisor) already exposes the metrics over HTTP. TrueNAS SNMP lets you hang extra commands on `snmpd extend`. This Python script is the glue: cAdvisor JSON in, LibreNMS Docker-app JSON out.
 
 ## Features
 
@@ -176,11 +171,11 @@ I haven't found a way yet to tell WHICH container is not running, only that SOME
 - under advanced, activate Override SQL and paste the following:
 
 ```
-SELECT * FROM devices, applications, application_metrics 
-WHERE (devices.device_id = ? 
-  AND devices.device_id = applications.device_id 
+SELECT * FROM devices, applications, application_metrics
+WHERE (devices.device_id = ?
+  AND devices.device_id = applications.device_id
   AND applications.app_id = application_metrics.app_id
-  AND applications.app_type = 'docker') 
+  AND applications.app_type = 'docker')
   AND application_metrics.metric = 'total_running'
   AND application_metrics.value_prev IS NOT NULL
   AND application_metrics.value < application_metrics.value_prev
